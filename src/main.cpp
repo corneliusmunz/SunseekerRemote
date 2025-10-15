@@ -1,10 +1,20 @@
 #include <Arduino.h>
-#include <M5Atom.h>
+#include <M5Unified.h>
+#include <TaskScheduler.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <UrlEncode.h>
-#include <TaskScheduler.h>
+#include <FastLED.h>
+
+#define NUM_LEDS 25
+#define DATA_PIN 27
+
+// Define the array of leds
+CRGB leds[NUM_LEDS];
+
+
+void mainTaskCallback();
 
 const char *WifiSsid = "";
 const char *WifiPassword = "";
@@ -16,9 +26,11 @@ String userId = "";
 String deviceSerialNumber = "";
 String deviceId = "";
 
-void mainTaskCallback();
-Task t1(10000, TASK_FOREVER, &mainTaskCallback);
-Scheduler runner;
+// Scheduler
+Scheduler taskScheduler;
+
+#define DURATION 30000
+Task t1(DURATION, TASK_FOREVER, &mainTaskCallback);
 
 bool isAirfieldBlocked = false;
 bool isInTransition = false;
@@ -210,16 +222,30 @@ void ClearAirport() {
 }
 
 void SetColorOutput() {
+  FastLED.clear();
   if (isInTransition) {
-    M5.dis.fillpix(CRGB::Blue);
+    for (int i = 0; i < NUM_LEDS; i++)
+    {
+      leds[i] = CRGB::Blue;
+    }
+    FastLED.show();
     return;
   }
   
   if (isAirfieldBlocked) {
-    M5.dis.fillpix(CRGB::Red);
-  } else {
-    M5.dis.fillpix(CRGB::Green);
+    for (int i = 0; i < NUM_LEDS; i++)
+    {
+      leds[i] = CRGB::Red;
+    }
   }
+  else
+  {
+    for (int i = 0; i < NUM_LEDS; i++)
+    {
+      leds[i] = CRGB::Green;
+    }
+  }
+  FastLED.show();
 }
 
 void GetStatus() {
@@ -239,10 +265,13 @@ void GetStatusAndUpdateColorOutput(){
 
 void setup() {
 
-  M5.begin(true, false, true);
-  M5.dis.setBrightness(10);
-  
-  M5.dis.clear();
+  M5.begin();
+
+  Serial.begin(115200);
+  Serial.println("Serial initialized");
+  FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);
+  FastLED.setBrightness(50);
+  FastLED.clear();
 
   WiFi.begin(WifiSsid, WifiPassword);
   Serial.println("Connecting");
@@ -257,18 +286,17 @@ void setup() {
   GetStatus();
   SetColorOutput();
 
-  runner.init();
+  taskScheduler.init();
   Serial.println("Initialized scheduler");
-  runner.addTask(t1);
+  taskScheduler.addTask(t1);
   Serial.println("added t1");
   t1.enable();
-  Serial.println("Enabled t1");
 }
 
 void checkButton(){
-  if (M5.Btn.wasPressed())
+  if (M5.BtnA.wasClicked())
   {
-    Serial.println("Button Pressed");
+    Serial.println("Button Clicked");
     isInTransition = true;
     SetColorOutput();
 
@@ -290,6 +318,6 @@ void mainTaskCallback()
 
 void loop() {
   M5.update();
-  runner.execute();
+  taskScheduler.execute();
   checkButton();
 }
