@@ -1,17 +1,17 @@
 meta {
-  name: Get Map data
+  name: Get Bysn
   type: http
-  seq: 14
+  seq: 13
 }
 
 get {
-  url: {{baseUrl}}/api/wireless_map/wireless_device/get?deviceSn={{deviceSerialNumber}}
+  url: {{baseUrl}}/api/app_wireless_mower/device/getBysn?sn={{deviceSerialNumber}}
   body: none
   auth: inherit
 }
 
 params:query {
-  deviceSn: {{deviceSerialNumber}}
+  sn: {{deviceSerialNumber}}
 }
 
 headers {

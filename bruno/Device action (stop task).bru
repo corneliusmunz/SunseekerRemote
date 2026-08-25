@@ -1,27 +1,26 @@
 meta {
-  name: Get all Properties
+  name: Device action (stop task)
   type: http
-  seq: 16
+  seq: 7
 }
 
 post {
-  url: {{baseUrl}}/api/iot_mower/wireless/device/get_property
+  url: {{baseUrl}}/api/iot_mower/wireless/device/action
   body: json
   auth: inherit
 }
 
 headers {
   Accept-Language: de
-  Content-Type: application/json
   Authorization: Bearer {{access_token}}
 }
 
 body:json {
   {
+    "method": "action",
     "appId": {{user_id}},
     "deviceSn": "{{deviceSerialNumber}}",
-    "id": "getDevAllProperty",
-    "key": "all",
-    "method": "get_property"
+    "cmd": "stop_task",
+    "id": "stopTask"
   }
 }

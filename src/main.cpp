@@ -7,14 +7,16 @@
 #include <UrlEncode.h>
 #include <FastLED.h>
 
+//ToDo: 
+// * Token fetch based on valid until date --> use task scheduler for periodic refresh
+// * Changed Status handling: During Timeplan set STATUS to RED even if the mower is in the charging station
+// * Arrival of a pilot at the airfield: Pilot has to press the button at any time and not only if the mower is mowing
+
 #define NUM_LEDS 25
 #define DATA_PIN 27
 
 // Define the array of leds
 CRGB leds[NUM_LEDS];
-
-
-void mainTaskCallback();
 
 const char *WifiSsid = "";
 const char *WifiPassword = "";
@@ -27,13 +29,19 @@ String deviceSerialNumber = "";
 String deviceId = "";
 
 // Scheduler
+void mainTaskCallback();
+void GetToken();
+
 Scheduler taskScheduler;
 
-#define DURATION 30000
-Task t1(DURATION, TASK_FOREVER, &mainTaskCallback);
+#define MAIN_TASK_DURATION 30000 // 30 seconds
+#define TOKEN_TASK_DURATION 3600000*24 // 24 hours
+Task mainTask(MAIN_TASK_DURATION, TASK_FOREVER, &mainTaskCallback);
+Task tokenTask(TOKEN_TASK_DURATION, TASK_FOREVER, &GetToken);
 
-bool isAirfieldBlocked = false;
+bool isAirfieldBlocked = true;
 bool isInTransition = false;
+bool isScheduleCurrent = true;
 
 HTTPClient http;
 
@@ -88,7 +96,43 @@ void GetToken() {
 // #Locating = 15,
 // #Stopp = 18
 
-void GetSettings() {
+// possible detection if zone or work is finished or not is the ration between
+//     "taskTotalArea": 697,
+//.    "taskCoverArea" : 297,
+
+// maybe "scheduleCancel": 1, could be used to detect, if airfield is really free
+
+// "scheduleInfoObject" : {
+//   "start" : 28800,
+//   "end" : 61200,
+//   "yday" : 46101,
+//   "type" : "future",
+//   "day" : 4,
+//   "pause" : false
+// },
+
+// "scheduleInfoObject": {
+// "start" : 28800,
+//     "end" : 61200,
+//     "yday" : 46101,
+//     "type" : "current",
+//              "day" : 3,
+//              "pause" : false
+// }
+
+// "scheduleInfoObject":
+// {
+//   "start" : 28800,
+//       "end" : 61200,
+//       "yday" : 46103,
+//       "type" : "current",
+//                "day" : 5,
+//                "pause" : false
+// }
+// check if the mower is charching and TotalArea is not finished, if the cancel workplan will prevent the mower to start mowing again after it is fully charged.
+
+void GetSettings()
+{
   http.begin(baseUrl + "app_wireless_mower/device/info/" + deviceId);
 
   // Specify content-type header
@@ -118,6 +162,13 @@ void GetSettings() {
       isAirfieldBlocked = true;
     } else {
       isInTransition = true;
+    }
+
+    String scheduleType = doc["data"]["scheduleInfoObject"]["type"].as<String>();
+    if (scheduleType == "current") {
+      isScheduleCurrent = true;
+    } else {
+      isScheduleCurrent = false;
     }
   } else {
     Serial.print("Error code: ");
@@ -211,51 +262,49 @@ void SetActionPause(){
   SetAction("pause", "pauseWork");
 }
 
-void SetActionCancelWorkplan() {
-  SetAction("cancel_time_tactics", "cancelTimeTactics");
+void SetActionStopTask() {
+  SetAction("stop_task", "stopTask");
 }
 
 void ClearAirport() {
+  SetActionStopTask();
+  delay(2000);
   SetActionReturnToDock();
-  delay(1000);
-  SetActionCancelWorkplan();
+}
+
+void FillDisplayWithColor(CRGB color) {
+  FastLED.clear();
+  for (int i = 0; i < NUM_LEDS; i++)
+  {
+    leds[i] = color;
+  }
+  FastLED.show();
 }
 
 void SetColorOutput() {
   FastLED.clear();
   if (isInTransition) {
-    for (int i = 0; i < NUM_LEDS; i++)
-    {
-      leds[i] = CRGB::Blue;
-    }
-    FastLED.show();
+    FillDisplayWithColor(CRGB::Blue);
     return;
   }
   
   if (isAirfieldBlocked) {
-    for (int i = 0; i < NUM_LEDS; i++)
-    {
-      leds[i] = CRGB::Red;
-    }
+    FillDisplayWithColor(CRGB::Red);
   }
   else
   {
-    for (int i = 0; i < NUM_LEDS; i++)
-    {
-      leds[i] = CRGB::Green;
-    }
+    FillDisplayWithColor(CRGB::Green);
   }
-  FastLED.show();
 }
 
 void GetStatus() {
-  GetToken();
-  GetAllDevices();
   GetSettings();
   Serial.print("isAirfieldBlocked: ");
   Serial.print(isAirfieldBlocked);
   Serial.print(" isInTransition: ");
   Serial.println(isInTransition);
+  Serial.print(" isScheduleCurrent: ");
+  Serial.println(isScheduleCurrent);
 }
 
 void GetStatusAndUpdateColorOutput(){
@@ -273,6 +322,7 @@ void setup() {
   FastLED.setBrightness(50);
   FastLED.clear();
 
+  // Connect to Wi-Fi
   WiFi.begin(WifiSsid, WifiPassword);
   Serial.println("Connecting");
   while (WiFi.status() != WL_CONNECTED)
@@ -283,14 +333,43 @@ void setup() {
   Serial.println("");
   Serial.print("Connected to WiFi network with IP Address: ");
   Serial.println(WiFi.localIP());
-  GetStatus();
-  SetColorOutput();
 
+
+  // Get initial Token
+  Serial.println("Get Token");
+  while (accessToken == "")
+  {
+    GetToken();
+    delay(1000);
+  }
+  Serial.print("Token: ");
+  Serial.println(accessToken);
+
+  // Init Scheduler and add Tasks
   taskScheduler.init();
   Serial.println("Initialized scheduler");
-  taskScheduler.addTask(t1);
-  Serial.println("added t1");
-  t1.enable();
+  taskScheduler.addTask(mainTask);
+  Serial.println("added mainTask");
+  mainTask.enable();
+  taskScheduler.addTask(tokenTask);
+  Serial.println("added tokenTask");
+  tokenTask.enable();
+
+  // Get Device ID and Serial Number once to be able to use it for all subsequent API calls
+  Serial.println("Get Devices");
+  while (deviceId == "" && deviceSerialNumber == "")
+  {
+    GetAllDevices();
+    delay(1000);
+    Serial.print(".");
+  }
+  Serial.print("Device ID: ");
+  Serial.print(deviceId);
+  Serial.print(" Device Serial Number: ");
+  Serial.println(deviceSerialNumber);
+
+  GetStatus();
+  SetColorOutput();
 }
 
 void checkButton(){
