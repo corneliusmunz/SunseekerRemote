@@ -34,7 +34,7 @@ void GetToken();
 
 Scheduler taskScheduler;
 
-#define MAIN_TASK_DURATION 30000 // 30 seconds
+#define MAIN_TASK_DURATION 60000 // 60 seconds
 #define TOKEN_TASK_DURATION 3600000*24 // 24 hours
 Task mainTask(MAIN_TASK_DURATION, TASK_FOREVER, &mainTaskCallback);
 Task tokenTask(TOKEN_TASK_DURATION, TASK_FOREVER, &GetToken);
@@ -318,8 +318,14 @@ void setup() {
 
   Serial.begin(115200);
   Serial.println("Serial initialized");
-  FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);
-  FastLED.setBrightness(50);
+
+  // set explicitly the pin mode for the data pin to OUTPUT and set it LOW to avoid any flickering of the LEDs during boot
+  pinMode(DATA_PIN, OUTPUT);
+  digitalWrite(DATA_PIN, LOW);
+  delay(1);
+
+  FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
+  FastLED.setBrightness(50); // Helligkeit begrenzen
   FastLED.clear();
 
   // Connect to Wi-Fi
