@@ -268,7 +268,7 @@ void SetActionStopTask() {
 
 void ClearAirport() {
   SetActionStopTask();
-  delay(2000);
+  delay(5000);
   SetActionReturnToDock();
 }
 
